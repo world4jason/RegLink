@@ -16,8 +16,7 @@ move the three files "checkpoints/resnet_v1_50-model.ckpt-0.meta", "checkpoints/
 
 ## Make
 before runing the code, please:  
-cd lanms; make; cd ../  
-cd polynms; make; cd ../  
+cd lanms; make; cd ../   
 
 ## Run  
 run the code in two ways:  
