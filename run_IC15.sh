@@ -9,5 +9,4 @@ TF_CUDNN_USE_AUTOTUNE=0 python3 -u eval_curve.py \
 --no_write_images=False \
 --link_method=Box \
 --use_2branch=False \
---max_side_len=2400 \
---test_IC15=True
+--max_side_len=2400
