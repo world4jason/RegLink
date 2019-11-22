@@ -11,8 +11,10 @@ scipy
 cython
 
 ## Checkpoints
-checkpoints are avaiable at [Google Drive](https://drive.google.com/open?id=1oDsLlv0_l8_Uz7T3raGI0xTEg3dtFKsV), the checkpoints are pre-trained on ICDAR MLT 2017, and finetuned on Total-Text.
-move the three files "checkpoints/resnet_v1_50-model.ckpt-0.meta", "checkpoints/resnet_v1_50-model.ckpt-0.index", and "checkpoints/resnet_v1_50-model.ckpt-0.data-00000-of-00001" to the ./checkpoints folder.
+Checkpoints for Total-Text are avaiable at [Total-Text](https://drive.google.com/open?id=1oDsLlv0_l8_Uz7T3raGI0xTEg3dtFKsV), the checkpoints are pre-trained on ICDAR MLT 2017, ICDAR 2015, ICDAR 2013, and finetuned on Total-Text. Unzip it and move the three files to the ./checkpoints folder.
+
+Checkpoints for ICDAR 2015 are avaiable at [ICDAR 2015](https://drive.google.com/open?id=1mbTj6vCK7BhmyTmuc1EfPFijamFpLbWsV), the checkpoints are pre-trained on ICDAR MLT 2017, ICDAR 2015, ICDAR 2013, and finetuned on ICDAR 2015. Unzip it and move the three files to the ./checkpoints folder.
+
 
 ## Make
 before runing the code, please:  
