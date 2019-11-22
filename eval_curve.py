@@ -17,7 +17,7 @@ tf.app.flags.DEFINE_string('checkpoint_path', './checkpoints/resnet_v1_50-model.
 tf.app.flags.DEFINE_string('output_dir', './results/', '')
 tf.app.flags.DEFINE_bool('no_write_images', False, 'do not write images')
 tf.app.flags.DEFINE_boolean('select_wh', True, 'True: use w,h; False:use t,r,b,l')
-tf.app.flags.DEFINE_boolean('is_select_background', False, 'select_background')
+tf.app.flags.DEFINE_boolean('is_select_background', True, 'select_background')
 tf.app.flags.DEFINE_float('resize_ratio', 1.0, '')
 tf.app.flags.DEFINE_integer('max_side_len', 1280, '')
 tf.app.flags.DEFINE_integer('min_side_len', 512, '')
@@ -29,16 +29,40 @@ tf.app.flags.DEFINE_string('gt_path', "./gt_mat", 'gt_path')
 tf.app.flags.DEFINE_bool('mask_dilate', True, 'mask_dilate')
 tf.app.flags.DEFINE_float('dilate_ratio', 0.1, 'dilate_ratio')
 tf.app.flags.DEFINE_string('link_method', "RegLink", '')#"Box", "Mask", "DBSCAN"
-tf.app.flags.DEFINE_integer('gpu_nms_id', -1, '')
-
+#tf.app.flags.DEFINE_integer('gpu_nms_id', -1, '')
+tf.app.flags.DEFINE_boolean('use_2branch', True, 'use_FSM')
+tf.app.flags.DEFINE_boolean('test_IC15', False, 'test ICDAR 2015')
 
 import model
 from icdar import restore_rectangle, parse_mat
 from blocks.RegLink import RegLink_func
 from sklearn.cluster import DBSCAN
-#from polynms.polynms.gpu_iou_matrix import gpu_iou_matrix #has bug now, todo
 
 FLAGS = tf.app.flags.FLAGS
+
+GPU_IOU_ID = -1
+
+import os
+#os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
+gpuids = FLAGS.gpu_list.split(',')
+if len(gpuids) > 2:
+    print("please use less than 2 gpus")
+    exit()
+elif len(gpuids) > 1:
+    GPU_IOU_ID = int(gpuids[1])
+    if gpuids[1] == gpuids[0]:
+        os.environ['CUDA_VISIBLE_DEVICES'] =  gpuids[0]
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
+else:
+    os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
+    
+if FLAGS.link_method == "DBSCAN" and GPU_IOU_ID != -1:
+    print("GPU_IOU_ID:",GPU_IOU_ID)
+    from polynms.polynms.gpu_iou_matrix import gpu_iou_matrix 
+
+
+    
 ANCHOR_SIZES = [ 32, 64, 128, 256, 512, 1024]
 f_fscale_index = [0, 0, 1, 2, 3, 3]
 f_scale_i = [1, 1, 2, 4, 8, 8]
@@ -479,7 +503,7 @@ def detect_pixellink(score_map, geo_map, timer, mask_thresh=FLAGS.mask_thresh, b
     return mask_colors, timer, mask_contours, []
 
 
-def detect_dbscan(score_map, geo_map, timer, score_map_thresh=FLAGS.mask_thresh, box_thresh=0.1, nms_thres=0.2, min_area=FLAGS.min_area, gpu_nms_id=FLAGS.gpu_nms_id):
+def detect_dbscan(score_map, geo_map, timer, score_map_thresh=FLAGS.mask_thresh, box_thresh=0.1, nms_thres=0.2, min_area=FLAGS.min_area, gpu_iou_id=GPU_IOU_ID):
     if len(score_map.shape) == 4:
         score_map = score_map[0, :, :, 0]
         geo_map = geo_map[0, :, :, ]
@@ -517,7 +541,10 @@ def detect_dbscan(score_map, geo_map, timer, score_map_thresh=FLAGS.mask_thresh,
     for i in range(len(points)):
         points_dict[points[i]] = i
     
-    if 1:#gpu_nms_id < 0:
+    print("gpu_iou_id",gpu_iou_id)
+    
+    if gpu_iou_id < 0:
+        print("using cpu IoU")
         time_iou = time.time()
         iou_dict = np.ones((boxes.shape[0],boxes.shape[0]), dtype=np.float32)
         areas_ = np.zeros((boxes.shape[0]), dtype=np.float32)
@@ -530,13 +557,19 @@ def detect_dbscan(score_map, geo_map, timer, score_map_thresh=FLAGS.mask_thresh,
         
         iou_dict = 1.0 - iou_dict * iou_dict.T
         print("time_cpu_iou:",time.time() - time_iou)
-    #else:
+    else:
+        print("using gpu IoU")
         #boxes_iou = boxes[:,:8]
         #boxes_iou = np.array(boxes_iou, dtype=np.float32)
-        #print(boxes_iou.shape)
-        #time_iou = time.time()
-        #iou_dict = 1.0 - gpu_iou_matrix(boxes_iou, boxes_iou, gpu_nms_id)
-        #print("time_gpu_iou:",time.time() - time_iou)
+        boxes_iou = []
+        for b in boxes:
+            boxes_iou.append(cv2.convexHull(b[:8].reshape(4,2),clockwise=False,returnPoints=True).reshape(8))
+        boxes_iou=np.array(boxes_iou).astype(np.int32).astype(np.float32)
+        
+        print(boxes_iou.shape)
+        time_iou = time.time()
+        iou_dict = 1.0 - gpu_iou_matrix(boxes_iou, boxes_iou, gpu_iou_id)
+        print("time_gpu_iou:",time.time() - time_iou)
     #print(iou_dict,iou_dict.shape)
     
     in_index = np.arange((boxes.shape[0]))
@@ -626,13 +659,6 @@ def sort_poly(p):
 
 
 def main(argv=None):
-    import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_list
-    gpuids = FLAGS.gpu_list.split(',')
-    if len(gpuids) > 1:
-        FLAGS.gpu_nms_id = int(gpuids[1])
-        
-
     FLAGS.output_dir = FLAGS.output_dir + FLAGS.link_method
     try:
         os.makedirs(FLAGS.output_dir)
@@ -647,7 +673,7 @@ def main(argv=None):
         input_images = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='input_images')
         global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
 
-        f_score, f_geometry, _, f_score_full, f_geometry_full = model.model(input_images, is_training=is_training, anchor_sizes=ANCHOR_SIZES, f_fscale_index=f_fscale_index, f_scale_i=f_scale_i, select_split_N=select_split_N,is_select_background=FLAGS.is_select_background)
+        f_score, f_geometry, _, f_score_full, f_geometry_full = model.model(input_images, is_training=is_training, anchor_sizes=ANCHOR_SIZES, f_fscale_index=f_fscale_index, f_scale_i=f_scale_i, select_split_N=select_split_N,is_select_background=FLAGS.is_select_background, use_2branch=FLAGS.use_2branch)
 
         variable_averages = tf.train.ExponentialMovingAverage(0.997, global_step)
         saver = tf.train.Saver(variable_averages.variables_to_restore())
@@ -666,7 +692,10 @@ def main(argv=None):
             for im_fn in im_fn_list:
                 im = cv2.imread(im_fn)[:, :, ::-1]
                 start_time = time.time()
-                im_resized, (ratio_h, ratio_w) = resize_image_range(im, re_ratio=FLAGS.resize_ratio)
+                if FLAGS.use_2branch==False:
+                    im_resized, (ratio_h, ratio_w) = resize_image(im, max_side_len=2400, re_ratio=FLAGS.resize_ratio)
+                else:
+                    im_resized, (ratio_h, ratio_w) = resize_image_range(im)
                 print(im.shape,im_resized.shape,(ratio_h, ratio_w) )
 
                 timer = {'net': 0, 'restore': 0, 'nms': 0}
@@ -681,7 +710,7 @@ def main(argv=None):
                 elif FLAGS.link_method == "Mask":
                     mask, timer, mask_contours, boxes = detect_mask(score_map=score, score_map_full=score_full, geo_map=geometry, timer=timer)
                 elif FLAGS.link_method == "DBSCAN":
-                    mask, timer, mask_contours, boxes = detect_dbscan(score_map=score_full, geo_map=geometry_full, timer=timer)
+                    mask, timer, mask_contours, boxes = detect_dbscan(score_map=score_full, geo_map=geometry_full, timer=timer, gpu_iou_id=GPU_IOU_ID)
                 elif FLAGS.link_method == "RegLink":
                     mask, timer, mask_contours, boxes = detect_pixellink(score_map=score_full, geo_map=geometry_full, timer=timer)
                 #mask, timer, mask_contours, boxes = detect(score_map=score_full, geo_map=geometry_full, timer=timer)
@@ -708,23 +737,42 @@ def main(argv=None):
                 
 
                 # save to file
-                res_file = os.path.join(FLAGS.output_dir+"_box", '{}.txt'.format(os.path.basename(im_fn).split('.')[0]))
-                with open(res_file, 'w') as f:
-                    if boxes is not None:
-                        for box in boxes:
-                            # to avoid submitting errors
-                            box = cv2.convexHull(box.reshape(4,2),clockwise=False,returnPoints=True)
-                            box = box.reshape(4,2)
-                            box = sort_poly(box.astype(np.int32))
-                            if np.linalg.norm(box[0] - box[1]) < 5 or np.linalg.norm(box[3]-box[0]) < 5:
-                                continue
-                            f.write('{},{},{},{},{},{},{},{}\r\n'.format(
-                                box[0, 1], box[0, 0], box[1, 1], box[1, 0], box[2, 1], box[2, 0], box[3, 1], box[3, 0],
-                            ))
-                            #f.write('{},{},{},{},{},{},{},{}\r\n'.format(
-                                #box[0, 0], box[0, 1], box[1, 0], box[1, 1], box[2, 0], box[2, 1], box[3, 0], box[3, 1],
-                            #))
-                            cv2.polylines(im[:, :, ::-1], [box.astype(np.int32).reshape((-1, 1, 2))], True, color=(255, 255, 0), thickness=3)
+                if FLAGS.use_2branch==False:
+                    res_file = os.path.join(FLAGS.output_dir+"_box", 'res_{}.txt'.format(os.path.basename(im_fn).split('.')[0]))
+                    with open(res_file, 'w') as f:
+                        if boxes is not None:
+                            for box in boxes:
+                                # to avoid submitting errors
+                                box = sort_poly(box.astype(np.int32))
+                                box = cv2.convexHull(box.reshape(4,2),clockwise=False,returnPoints=True)
+                                box = box.reshape(4,2)
+                                if np.linalg.norm(box[0] - box[1]) < 5 or np.linalg.norm(box[3]-box[0]) < 5:
+                                    continue
+                                f.write('{},{},{},{},{},{},{},{}\r\n'.format(
+                                    box[0, 0], box[0, 1], box[1, 0], box[1, 1], box[2, 0], box[2, 1], box[3, 0], box[3, 1],
+                                ))
+                                #f.write('{},{},{},{},{},{},{},{}\r\n'.format(
+                                    #box[0, 0], box[0, 1], box[1, 0], box[1, 1], box[2, 0], box[2, 1], box[3, 0], box[3, 1],
+                                #))
+                                cv2.polylines(im[:, :, ::-1], [box.astype(np.int32).reshape((-1, 1, 2))], True, color=(255, 255, 0), thickness=3)
+                else:
+                    res_file = os.path.join(FLAGS.output_dir+"_box", '{}.txt'.format(os.path.basename(im_fn).split('.')[0]))
+                    with open(res_file, 'w') as f:
+                        if boxes is not None:
+                            for box in boxes:
+                                # to avoid submitting errors
+                                box = sort_poly(box.astype(np.int32))
+                                box = cv2.convexHull(box.reshape(4,2),clockwise=False,returnPoints=True)
+                                box = box.reshape(4,2)
+                                if np.linalg.norm(box[0] - box[1]) < 5 or np.linalg.norm(box[3]-box[0]) < 5:
+                                    continue
+                                f.write('{},{},{},{},{},{},{},{}\r\n'.format(
+                                    box[0, 1], box[0, 0], box[1, 1], box[1, 0], box[2, 1], box[2, 0], box[3, 1], box[3, 0],
+                                ))
+                                #f.write('{},{},{},{},{},{},{},{}\r\n'.format(
+                                    #box[0, 0], box[0, 1], box[1, 0], box[1, 1], box[2, 0], box[2, 1], box[3, 0], box[3, 1],
+                                #))
+                                cv2.polylines(im[:, :, ::-1], [box.astype(np.int32).reshape((-1, 1, 2))], True, color=(255, 255, 0), thickness=3)
                 
                 if mask_contours != []:
                     

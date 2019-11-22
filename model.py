@@ -115,7 +115,7 @@ def mean_image_subtraction(images, means=[123.68, 116.78, 103.94]):
 #anchor_sizes = [32, 64, 128, 256, 512, 1024]
 #f_fscale_index = [0, 0, 1, 2, 3, 3]
 #f_scale_i = [1, 1, 2, 4, 8, 8]
-def model(images, anchor_sizes, f_fscale_index, f_scale_i, select_split_N, is_select_background=False, weight_decay=1e-5, is_training=True):
+def model(images, anchor_sizes, f_fscale_index, f_scale_i, select_split_N, is_select_background=False, weight_decay=1e-5, is_training=True, use_2branch=True ):
     '''
     define the model, we use slim's implemention of resnet
     '''
@@ -266,10 +266,12 @@ def model(images, anchor_sizes, f_fscale_index, f_scale_i, select_split_N, is_se
             f_cls_list_h = []; f_cls_list_w = []
             f_rl_list = []; f_rr_list = []; f_rt_list = []; f_rb_list = []
             f_angle_list_h  = []; f_angle_list_w  = []
-            f_all_list  = []
+            if use_2branch:
+                f_all_list  = []
             for fi in range(len(anchor_sizes)):
-                f_all_list.append(unpool_hw_stride(f_h[fi],h=f_scale_i[fi], w=1))
-                f_all_list.append(unpool_hw_stride(f_w[fi],h=1, w=f_scale_i[fi]))
+                if use_2branch:
+                    f_all_list.append(unpool_hw_stride(f_h[fi],h=f_scale_i[fi], w=1))
+                    f_all_list.append(unpool_hw_stride(f_w[fi],h=1, w=f_scale_i[fi]))
                 f_cls_list_h.append(unpool_hw_stride(f_h_cls[fi],h=f_scale_i[fi], w=1))
                 f_cls_list_w.append(unpool_hw_stride(f_w_cls[fi],h=1, w=f_scale_i[fi]))
                 
@@ -306,17 +308,20 @@ def model(images, anchor_sizes, f_fscale_index, f_scale_i, select_split_N, is_se
             
             F_geometry = tf.concat([f_rt, f_rr, f_rb, f_rl,f_angle], axis=-1)
             
-            f_all = slim.conv2d(slim.conv2d(tf.concat(f_all_list, axis=-1), 32 ,3), 32 ,3)
-            F_score_full = slim.conv2d(slim.conv2d(f_all, 2, 3), 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None)
-            f_box_full_only = tf.exp(slim.conv2d(slim.conv2d(f_all, 8, 3), 4, 1, activation_fn=None, normalizer_fn=None)) * FLAGS.text_scale
-            f_angle_full = (slim.conv2d(slim.conv2d(f_all, 2, 3), 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) - 0.5) * np.pi/2
-            F_geometry_full = tf.concat([f_box_full_only, f_angle_full], axis=-1)
+            if use_2branch:
+                f_all = slim.conv2d(slim.conv2d(tf.concat(f_all_list, axis=-1), 32 ,3), 32 ,3)
+                F_score_full = slim.conv2d(slim.conv2d(f_all, 2, 3), 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None)
+                f_box_full_only = tf.exp(slim.conv2d(slim.conv2d(f_all, 8, 3), 4, 1, activation_fn=None, normalizer_fn=None)) * FLAGS.text_scale
+                f_angle_full = (slim.conv2d(slim.conv2d(f_all, 2, 3), 1, 1, activation_fn=tf.nn.sigmoid, normalizer_fn=None) - 0.5) * np.pi/2
+                F_geometry_full = tf.concat([f_box_full_only, f_angle_full], axis=-1)
             #F_geometry_full_only = tf.concat([f_box_full_only, f_angle_full], axis=-1)
             
             #F_geometry_full = (F_geometry * F_score + F_geometry_full_only * F_score_full) / (F_score + F_score_full)
             
             #F_cls_map = tf.concat(f_cls_list_h, axis=-1) + tf.concat(f_cls_list_w, axis=-1)
-            return F_score, F_geometry, fm_N, F_score_full, F_geometry_full
+            if use_2branch:
+                return F_score, F_geometry, fm_N, F_score_full, F_geometry_full
+            return F_score, F_geometry, fm_N, F_score, F_geometry
 
 
 

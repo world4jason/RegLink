@@ -10,4 +10,4 @@ TF_CUDNN_USE_AUTOTUNE=0 python3 -u eval_curve.py \
 --score_map_thresh=0.9 \
 --mask_thresh=0.7 \
 --no_write_images=False \
---link_method=$2
+--link_method=$2 
