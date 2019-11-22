@@ -41,11 +41,11 @@ run the code in two ways:
 ## =========================================
 Notably, tensorflow will cost a lot of time at the first image, so if you want to test the speed of our method, please test at least two images. And please add 'TF_CUDNN_USE_AUTOTUNE=0' before python command (has been add in run.sh and sh run_link_method.sh).  
 
-##Others:
-###"DBSCAN" takes a lot of time for calculating IoU of each pair of boxes, so we implement GPU IoU (in polynms), but it has some bugs, and the H-mean (79.96) is slightly lowwer than CPU method.
-###1: eg, sh run_link_method.sh 0,1 DBSCAN
+## Others:
+### "DBSCAN" takes a lot of time for calculating IoU of each pair of boxes, so we implement GPU IoU (in polynms), but it has some bugs, and the H-mean (79.96) is slightly lowwer than CPU method.
+    1: eg, sh run_link_method.sh 0,1 DBSCAN
     using GPU for calculating IoU, the second GPU is used for calculating IoU.
-###2: eg, sh run_link_method.sh 0,0 DBSCAN
+    2: eg, sh run_link_method.sh 0,0 DBSCAN
     using one GPU, but it may cause OOM, "invalid device ordinal", or some other bugs.
-###3: eg, sh run_link_method.sh 0 DBSCAN
+    3: eg, sh run_link_method.sh 0 DBSCAN
     using CPU  for calculating IoU, but it is quite slow.
